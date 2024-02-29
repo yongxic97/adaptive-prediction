@@ -1890,7 +1890,7 @@ class MultimodalGenerativeCVAE(nn.Module):
             num_components=num_components,
             update_mode=update_mode,
         )
-
+        print("final dist mus shape", y_dist.mus.shape)
         if self.hyperparams["single_mode_multi_sample"]:
             log_p_ynt_xz = y_dist.log_prob(torch.nan_to_num(y))
             log_p_yt_xz = torch.logsumexp(log_p_ynt_xz, dim=0, keepdim=True) - np.log(
