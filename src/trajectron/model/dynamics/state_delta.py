@@ -62,6 +62,8 @@ class StateDelta(Dynamic):
         p_0 = self.initial_conditions["pos"][None, :, None, None, :]
         print("p_0.shape: ", p_0.shape)
         print("a shape", torch.cumsum(delta_dist.mus, dim=2).shape)
+        p_0 = p_0.repeat(1, int(delta_dist.mus.shape[1]/p_0.shape[1]), 1, 1, 1)
+        print("p_0 after repeat: ", p_0.shape)
         pos_mus = torch.cumsum(delta_dist.mus, dim=2) + p_0
 
         delta_dist_sigma_matrix = delta_dist.get_covariance_matrix()
