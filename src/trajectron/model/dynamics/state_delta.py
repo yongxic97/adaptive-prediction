@@ -60,6 +60,8 @@ class StateDelta(Dynamic):
         :return: Joint GMM Distribution over position in x and y direction.
         """
         p_0 = self.initial_conditions["pos"][None, :, None, None, :]
+        print("a shape", torch.cumsum(delta_dist.mus, dim=2).shape)
+        print("b shape", p_0.shape)
         pos_mus = torch.cumsum(delta_dist.mus, dim=2) + p_0
 
         delta_dist_sigma_matrix = delta_dist.get_covariance_matrix()
