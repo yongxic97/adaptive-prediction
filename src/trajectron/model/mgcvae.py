@@ -1844,7 +1844,7 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         self.latent.q_dist = self.q_z_xy(mode, enc, y_e)
         self.latent.p_dist = self.p_z_x(mode, enc)
-        print("sample_ct", sample_ct)
+        # print("sample_ct", sample_ct)
         z = self.latent.sample_q(sample_ct, mode)
 
         print('z', z.shape)

@@ -72,7 +72,7 @@ class DiscreteLatent(object):
             .to(self.device)
             .repeat(num_samples, bs)
         )
-        print("z_NK original shape",z_NK.shape)
+        # print("z_NK original shape",z_NK.shape)
         return torch.reshape(z_NK, (num_samples * num_components, -1, self.z_dim))
 
     def sample_p(
