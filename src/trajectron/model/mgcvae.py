@@ -1329,7 +1329,11 @@ class MultimodalGenerativeCVAE(nn.Module):
                     .reshape(-1, 1)
                 )
             )
-
+            print("log_pi shape", torch.ones_like(
+                    corr_t.reshape(num_samples, num_components, -1)
+                    .permute(0, 2, 1)
+                    .reshape(-1, 1)
+                ).shape)
             mus.append(
                 mu_t.reshape(num_samples, num_components, -1, 2)
                 .permute(0, 2, 1, 3)
@@ -1366,7 +1370,10 @@ class MultimodalGenerativeCVAE(nn.Module):
         mus = torch.stack(mus, dim=1)
         log_sigmas = torch.stack(log_sigmas, dim=1)
         corrs = torch.stack(corrs, dim=1)
-        # print("pred_dim", pred_dim)
+        
+        # print("log_pis.shape", log_pis.shape)
+        # print("log_sigmas.shape", log_sigmas.shape)
+
         a_dist = GMM2D(
             torch.reshape(log_pis, [num_samples, -1, ph, num_components]),
             torch.reshape(mus, [num_samples, -1, ph, num_components * pred_dim]),

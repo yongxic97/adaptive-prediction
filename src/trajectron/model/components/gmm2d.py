@@ -67,8 +67,8 @@ class GMM2D(td.MixtureSameFamily):
             self.one_minus_rho2, min=1e-5, max=1
         )  # otherwise log can be nan
         self.corrs = corrs  # [..., K]
-        print("entry 0.0 size", self.sigmas[..., 0].shape)
-        print("entry 0.1 size", torch.zeros_like(self.log_pis).shape)
+        # print("entry 0.0 size", self.sigmas[..., 0].shape)
+        # print("entry 0.1 size", torch.zeros_like(self.log_pis).shape)
         # print("entry 0 size", torch.stack(
         #             [self.sigmas[..., 0], torch.zeros_like(self.log_pis)], dim=-1
         #         ).shape)
