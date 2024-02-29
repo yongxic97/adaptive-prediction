@@ -1358,8 +1358,6 @@ class MultimodalGenerativeCVAE(nn.Module):
         log_sigmas = torch.stack(log_sigmas, dim=1)
         corrs = torch.stack(corrs, dim=1)
         # print("pred_dim", pred_dim)
-        print("log_pis shape", torch.reshape(log_pis, [num_samples, -1, ph, num_components].shape)
-        print("log_sigms shape", torch.reshape(log_sigmas, [num_samples, -1, ph, num_components * pred_dim].shape)
         a_dist = GMM2D(
             torch.reshape(log_pis, [num_samples, -1, ph, num_components]),
             torch.reshape(mus, [num_samples, -1, ph, num_components * pred_dim]),
@@ -1832,7 +1830,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         self.latent.p_dist = self.p_z_x(mode, enc)
 
         z = self.latent.sample_q(sample_ct, mode)
-
+        print("z shape", z.shape)
         if mode == ModeKeys.TRAIN:
             kl_obj = self.latent.kl_q_p(
                 self.log_writer, "%s" % str(self.node_type), self.curr_iter
