@@ -290,12 +290,12 @@ parser.add_argument(
     "--eval_batch_size", help="evaluation batch size", type=int, default=256
 )
 
-parser.add_argument(
-    "--K",
-    help="how many CVAE discrete latent modes to have in the model",
-    type=int,
-    default=25,
-)
+# parser.add_argument(
+#     "--K",
+#     help="how many CVAE discrete latent modes to have in the model",
+#     type=int,
+#     default=25,
+# )
 
 parser.add_argument(
     "--k_eval", help="how many samples to take during evaluation", type=int, default=25

@@ -60,13 +60,19 @@ class DiscreteLatent(object):
 
     def sample_q(self, num_samples, mode):
         bs = self.p_dist.probs.size()[0]
-        num_components = self.N * self.K
+        print("bs",bs)
+        # num_components = self.N * self.K # ogrinal, but doesn't seem to make sense
+        num_components = self.K ** self.N
+        print("N" ,self.N)
+        print("K",self.K)
+        print("num_components",num_components)
         z_NK = (
             torch.from_numpy(self.all_one_hot_combinations(self.N, self.K))
             .float()
             .to(self.device)
             .repeat(num_samples, bs)
         )
+        print("z_NK original shape",z_NK.shape)
         return torch.reshape(z_NK, (num_samples * num_components, -1, self.z_dim))
 
     def sample_p(

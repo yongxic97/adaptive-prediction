@@ -1272,7 +1272,8 @@ class MultimodalGenerativeCVAE(nn.Module):
         pred_dim = self.pred_state_length
 
         z = torch.reshape(z_stacked, (-1, self.latent.z_dim))
-        zx = torch.cat([z, x.repeat(num_samples * num_components, 1)], dim=1)
+        # zx = torch.cat([z, x.repeat(num_samples * num_components, 1)], dim=1)
+        zx = torch.cat([z, x.repeat(num_samples * (self.latent.K**self.latent.N), 1)], dim=1)
 
         cell = self.node_modules[self.node_type + "/decoder/rnn_cell"]
         initial_h_model = self.node_modules[self.node_type + "/decoder/initial_h"]
@@ -1290,41 +1291,44 @@ class MultimodalGenerativeCVAE(nn.Module):
             input_ = torch.cat(
                 [
                     zx,
-                    a_0.repeat(num_samples * num_components, 1),
-                    x_nr_t.repeat(num_samples * num_components, 1),
+                    a_0.repeat(num_samples * (self.latent.K**self.latent.N), 1),
+                    x_nr_t.repeat(num_samples * (self.latent.K**self.latent.N), 1),
                 ],
                 dim=1,
             )
         else:
-            input_ = torch.cat([zx, a_0.repeat(num_samples * num_components, 1)], dim=1)
+            input_ = torch.cat([zx, a_0.repeat(num_samples * (self.latent.K**self.latent.N), 1)], dim=1)
 
         for j in range(ph):
             h_state = cell(input_, state)
             decoder_out = F.relu(post_cell(h_state))
             log_pi_t, mu_t, log_sigma_t, corr_t = self.project_to_GMM_params(
-                decoder_out
-            )
-
-            gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t)  # [k;bs, pred_dim]
+                decoder_out 
+            ) # a set of neural networks that project the raw output of the decoder to the parameters of the GMM
+            # print("log_pi_t shape", log_pi_t.shape) # [(K**N)*bs, GMM_components]
+            # print("mu_t shape", mu_t.shape) # [(K**N)*bs, GMM_components * 2]
+            # print("log_sigma_t shape", log_sigma_t.shape) # [(K**N)*bs, GMM_components * 2]
+            # print("corr_t shape", corr_t.shape) # [(K**N)*bs, GMM_components]
+            gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t) 
 
             if mode == ModeKeys.PREDICT and gmm_mode:
                 a_t = gmm.mode()
             else:
                 a_t = gmm.rsample()
-
-            if num_components > 1:
-                if mode == ModeKeys.PREDICT:
-                    log_pis.append(self.latent.p_dist.logits.repeat(num_samples, 1, 1))
-                else:
-                    log_pis.append(self.latent.q_dist.logits.repeat(num_samples, 1, 1))
-            else:
-                log_pis.append(
-                    torch.ones_like(
-                        corr_t.reshape(num_samples, num_components, -1)
-                        .permute(0, 2, 1)
-                        .reshape(-1, 1)
-                    )
+            # print("logits shape", self.latent.p_dist.logits.shape)
+            # if num_components > 1:
+            #     if mode == ModeKeys.PREDICT:
+            #         log_pis.append(self.latent.p_dist.logits.repeat(num_samples, 1, 1))
+            #     else:
+            #         log_pis.append(self.latent.q_dist.logits.repeat(num_samples, 1, 1))
+            # else:
+            log_pis.append(
+                torch.ones_like(
+                    corr_t.reshape(num_samples, num_components, -1)
+                    .permute(0, 2, 1)
+                    .reshape(-1, 1)
                 )
+            )
 
             mus.append(
                 mu_t.reshape(num_samples, num_components, -1, 2)
@@ -1341,6 +1345,11 @@ class MultimodalGenerativeCVAE(nn.Module):
                 .permute(0, 2, 1)
                 .reshape(-1, num_components)
             )
+            # print("num_components", num_components)
+            # print("stack log pis shape", self.latent.p_dist.logits.repeat(num_samples * (self.latent.K**self.latent.N), 1, 1).shape)
+            # print("stack log sigmas shape", log_sigma_t.reshape(num_samples, num_components, -1, 2)
+            #     .permute(0, 2, 1, 3)
+            #     .reshape(-1, 2 * num_components).shape)
 
             if self.hyperparams["incl_robot_node"]:
                 dec_inputs = [
@@ -1357,7 +1366,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         mus = torch.stack(mus, dim=1)
         log_sigmas = torch.stack(log_sigmas, dim=1)
         corrs = torch.stack(corrs, dim=1)
-
+        # print("pred_dim", pred_dim)
         a_dist = GMM2D(
             torch.reshape(log_pis, [num_samples, -1, ph, num_components]),
             torch.reshape(mus, [num_samples, -1, ph, num_components * pred_dim]),
@@ -1828,8 +1837,10 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         self.latent.q_dist = self.q_z_xy(mode, enc, y_e)
         self.latent.p_dist = self.p_z_x(mode, enc)
-
+        print("sample_ct", sample_ct)
         z = self.latent.sample_q(sample_ct, mode)
+
+        print('z', z.shape)
 
         if mode == ModeKeys.TRAIN:
             kl_obj = self.latent.kl_q_p(
@@ -1875,7 +1886,20 @@ class MultimodalGenerativeCVAE(nn.Module):
         :return: Log probability of y over p.
         """
 
-        num_components = self.hyperparams["N"] * self.hyperparams["K"]
+        # num_components = self.hyperparams["N"] * self.hyperparams["K"]
+        # num_components = self.hyperparams["K"] 
+        # according to note of `p_y_xz()`, this is the number of GMM components
+        # The question is then: why would this be related to the latent variable part?
+        # if we assume that each distinct latent mode is related to one GMM mode, then the following is correct:
+        # num_components = self.hyperparams["K"] ** self.hyperparams["N"]
+        num_components = self.hyperparams["GMM_components"]
+        
+        # but I feel that this is not how the code were originally designed. I see the "GMM_components" in the config file,
+        # that implies the number of GMM components, can be independent of the latent variable number.
+        # so why are they necessarily related?
+        # It surely is sensible to have 25 GMM components as well as 25 latent modes, as in the paper.
+        # But when the code is formulated this way, when N increases, the number of GMM components would grow unreasonably large.
+
         y_dist = self.p_y_xz(
             mode,
             enc,

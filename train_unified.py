@@ -1,3 +1,4 @@
+#!/home/yongxi/anaconda3/envs/adaptive/bin/python
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # 
@@ -25,9 +26,9 @@ from typing import Dict, Optional
 import numpy as np
 import torch
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 import wandb
 from torch import nn, optim
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils import data
 from tqdm import tqdm, trange
 from trajdata import AgentType, UnifiedDataset
@@ -204,6 +205,8 @@ def train(rank, args):
         verbose=True,
     )
 
+    print("Training set size: ", len(train_dataset) )
+
     if hyperparams["train_data"] == "nusc_trainval-train":
         restrict_to_predchal(train_dataset, "train")
 
@@ -291,6 +294,7 @@ def train(rank, args):
         lr=hyperparams["learning_rate"],
     )
     # Set Learning Rate
+    # print("Learning decay rate: ", hyperparams["learning_decay_rate"])
     if hyperparams["learning_rate_style"] == "const":
         lr_scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0)
     elif hyperparams["learning_rate_style"] == "exp":

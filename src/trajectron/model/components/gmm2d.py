@@ -48,6 +48,7 @@ class GMM2D(td.MixtureSameFamily):
 
     def __init__(self, log_pis, mus, log_sigmas, corrs):
         self.components = log_pis.shape[-1]
+        # print("self.components: ", self.components) # align with "GMM_components" in the config file.
         self.dimensions = 2
         self.device = log_pis.device
 
@@ -55,15 +56,22 @@ class GMM2D(td.MixtureSameFamily):
         self.log_pis = log_pis - torch.logsumexp(
             log_pis, dim=-1, keepdim=True
         )  # [..., K]
+        # print("self.mus.shape before reshaping", mus.shape)
         self.mus = self.reshape_to_components(mus)  # [..., K, 2]
+        # print("self.mus.shape after reshaping", self.mus.shape)
         self.log_sigmas = self.reshape_to_components(log_sigmas)  # [..., K, 2]
+        # [batch_size * (K**N), ]
         self.sigmas = torch.exp(self.log_sigmas)  # [..., K, 2]
         self.one_minus_rho2 = 1 - corrs**2  # [..., K]
         self.one_minus_rho2 = torch.clamp(
             self.one_minus_rho2, min=1e-5, max=1
         )  # otherwise log can be nan
         self.corrs = corrs  # [..., K]
-
+        print("entry 0.0 size", self.sigmas[..., 0].shape)
+        print("entry 0.1 size", torch.zeros_like(self.log_pis).shape)
+        # print("entry 0 size", torch.stack(
+        #             [self.sigmas[..., 0], torch.zeros_like(self.log_pis)], dim=-1
+        #         ).shape)
         self.L = torch.stack(
             [
                 torch.stack(
