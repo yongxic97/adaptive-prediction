@@ -1302,6 +1302,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         for j in range(ph):
             h_state = cell(input_, state)
             decoder_out = F.relu(post_cell(h_state))
+            print("decoder output size before projection to GMM, ", decoder_out.shape)
             log_pi_t, mu_t, log_sigma_t, corr_t = self.project_to_GMM_params(
                 decoder_out 
             ) # a set of neural networks that project the raw output of the decoder to the parameters of the GMM
