@@ -1300,7 +1300,8 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         for j in range(ph):
             h_state = cell(input_, state)
-            decoder_out = F.relu(post_cell(h_state))
+            decoder_out = F.relu(post_cell(h_state)) # [bs * (K**N), 64] ?
+            print("decoder output size before GMM projection", decoder_out.shape)
             log_pi_t, mu_t, log_sigma_t, corr_t = self.project_to_GMM_params(
                 decoder_out
             )
