@@ -1300,7 +1300,7 @@ class MultimodalGenerativeCVAE(nn.Module):
             input_ = torch.cat([zx, a_0.repeat(num_samples * (self.latent.K**self.latent.N), 1)], dim=1)
 
         for j in range(ph):
-            h_state = cell(input_, state)
+            h_state = cell(input_, state) # state is reccurent from previous iteration
             decoder_out = F.relu(post_cell(h_state))
             print("decoder output size before projection to GMM, ", decoder_out.shape)
             log_pi_t, mu_t, log_sigma_t, corr_t = self.project_to_GMM_params(
