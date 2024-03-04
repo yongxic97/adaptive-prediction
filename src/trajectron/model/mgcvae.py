@@ -1381,10 +1381,10 @@ class MultimodalGenerativeCVAE(nn.Module):
         print("log_sigmas.shape", log_sigmas.shape)
 
         a_dist = GMM2D(
-            torch.reshape(log_pis, [num_samples, -1, ph, num_components]),
-            torch.reshape(mus, [num_samples, -1, ph, num_components * pred_dim]),
-            torch.reshape(log_sigmas, [num_samples, -1, ph, num_components * pred_dim]),
-            torch.reshape(corrs, [num_samples, -1, ph, num_components]),
+            torch.reshape(log_pis, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components]),
+            torch.reshape(mus, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components * pred_dim]),
+            torch.reshape(log_sigmas, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components * pred_dim]),
+            torch.reshape(corrs, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components]),
         )
 
         if self.hyperparams["dynamic"][self.node_type]["distribution"]:
@@ -1394,7 +1394,7 @@ class MultimodalGenerativeCVAE(nn.Module):
             # print("y_dist type", type(y_dist))
         else:
             y_dist = a_dist
-
+        print("final dist mus shape", y_dist.mus.shape)
         # y_dist is still unmarginalized
         # i.e. y_dist is actually p(y|x,z) now.
         # To get the marginalized distribution, need to multiply with z_logits
@@ -1410,13 +1410,14 @@ class MultimodalGenerativeCVAE(nn.Module):
             z_logits_sliced[i] = z_logits_sliced[i].unsqueeze(3)
             z_logits_sliced[0] = torch.matmul(z_logits_sliced[i], z_logits_sliced[0]).view(-1,1,self.hyperparams["K"]**(i+1))
 
-        z_logits_all_comb = z_logits_sliced[0]
+        z_logits_all_comb = z_logits_sliced[0].squeeze(1).transpose(0,1)
         print("z_logits_all_comb shape", z_logits_all_comb.shape)
 
         # Get and sum pi's and mean's for each z
         # To be marginalized over z
-        mus_all_z = y_dist.mus.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components, pred_dim)
-        log_pis_all_z = y_dist.log_pis.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components)
+        # Marginalization is not here, should be in train_loss()
+        # mus_all_z = y_dist.mus.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components, pred_dim)
+        # log_pis_all_z = y_dist.log_pis.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components)
 
         if mode == ModeKeys.PREDICT:
             if gmm_mode:
@@ -1940,7 +1941,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         # It surely is sensible to have 25 GMM components as well as 25 latent modes, as in the paper.
         # But when the code is formulated this way, when N increases, the number of GMM components would grow unreasonably large.
 
-        y_dist = self.p_y_xz(
+        y_dist,z_logits_all_comb = self.p_y_xz(
             mode,
             enc,
             x_nr_t,
@@ -2011,7 +2012,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         # if self.hyperparams["single_mode_multi_sample"]:
         #     log_p_y_xz /= log_p_yt_xz.shape[-1]
 
-        return log_p_y_xz
+        return log_p_y_xz, z_logits_all_comb
 
     def forward(
         self, batch: AgentBatch, update_mode: UpdateMode = UpdateMode.BATCH_FROM_PRIOR
@@ -2050,7 +2051,7 @@ class MultimodalGenerativeCVAE(nn.Module):
                 torch.arange(batch.agent_hist.shape[0]), batch.agent_hist_len - 1
             ]
 
-        log_p_y_xz = self.decoder(
+        log_p_y_xz, z_logits_all_comb = self.decoder(
             mode,
             enc,
             x_nr_t,
@@ -2064,9 +2065,16 @@ class MultimodalGenerativeCVAE(nn.Module):
             update_mode,
         )
 
-        log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
+        # log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
+        print("log_p_y_xz shape", log_p_y_xz.shape)
+        print("z_logits_all_comb shape", z_logits_all_comb.shape)
+        log_p_y_xz_mean = torch.mean(torch.mul(log_p_y_xz, z_logits_all_comb), dim=0)
+        
         #TODO: Marginalize over z at training time here? (at the line down below)
         log_likelihood = torch.mean(log_p_y_xz_mean)
+
+        print("log_p_y_xz_mean shape", log_p_y_xz_mean.shape)
+        print("log_likelihood shape", log_likelihood.shape)
 
         mutual_inf_q = mutual_inf_mc(self.latent.q_dist)
         mutual_inf_p = mutual_inf_mc(self.latent.p_dist)
