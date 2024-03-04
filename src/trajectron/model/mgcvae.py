@@ -1283,6 +1283,12 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
 
+        # yx: instantiate log_probabilities of latent.
+        if mode == ModeKeys.PREDICT:
+            z_logits = self.latent.p_dist.logits.repeat(num_samples,1,1) # prior
+        else:
+            z_logits = self.latent.q_dist.logits.repeat(num_samples,1,1) # posterior
+
         # Infer initial action state for node from current state
         a_0 = self.node_modules[self.node_type + "/decoder/state_action"](n_s_t0)
 
@@ -1363,11 +1369,14 @@ class MultimodalGenerativeCVAE(nn.Module):
             input_ = torch.cat(dec_inputs, dim=1)
             state = h_state
 
+        # z_logits = torch.stack(z_logits, dim=1)
+
         log_pis = torch.stack(log_pis, dim=1)
         mus = torch.stack(mus, dim=1)
         log_sigmas = torch.stack(log_sigmas, dim=1)
         corrs = torch.stack(corrs, dim=1)
         
+        print("z log probs shape", z_logits.shape)
         print("log_pis.shape", log_pis.shape)
         print("log_sigmas.shape", log_sigmas.shape)
 
@@ -1379,19 +1388,46 @@ class MultimodalGenerativeCVAE(nn.Module):
         )
 
         if self.hyperparams["dynamic"][self.node_type]["distribution"]:
+            # this is to integrate over GMM components
+            # y_dist is a GMM2D object
             y_dist = self.dynamic.integrate_distribution(a_dist, x, dt)
+            # print("y_dist type", type(y_dist))
         else:
             y_dist = a_dist
+
+        # y_dist is still unmarginalized
+        # i.e. y_dist is actually p(y|x,z) now.
+        # To get the marginalized distribution, need to multiply with z_logits
+        
+        # Cauculate probabilities of all latent combinations.
+            # z_logits: [num_samples * bs, N, K]
+            # desired output: z_logits_all_comb: [num_samples * bs, 1, K**N]
+
+        z_logits_sliced = [z_logits[:, i:i+1, :] for i in range(self.hyperparams["N"])]
+
+        for i in range(1,self.hyperparams["N"]):
+            z_logits_sliced[0] = z_logits_sliced[0].unsqueeze(1)
+            z_logits_sliced[i] = z_logits_sliced[i].unsqueeze(3)
+            z_logits_sliced[0] = torch.matmul(z_logits_sliced[i], z_logits_sliced[0]).view(-1,1,self.hyperparams["K"]**(i+1))
+
+        z_logits_all_comb = z_logits_sliced[0]
+        print("z_logits_all_comb shape", z_logits_all_comb.shape)
+
+        # Get and sum pi's and mean's for each z
+        # To be marginalized over z
+        mus_all_z = y_dist.mus.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components, pred_dim)
+        log_pis_all_z = y_dist.log_pis.view(-1, self.hyperparams["K"]**self.hyperparams["N"], ph, num_samples, num_components)
 
         if mode == ModeKeys.PREDICT:
             if gmm_mode:
                 a_sample = a_dist.mode()
             else:
                 a_sample = a_dist.rsample()
+            #TODO: Marginalize at inference time over z.
             sampled_future = self.dynamic.integrate_samples(a_sample, x, dt)
             return y_dist, sampled_future
         else:
-            return y_dist
+            return y_dist, z_logits_all_comb
 
     def p_y_xz_adaptive(
         self,
@@ -2029,6 +2065,7 @@ class MultimodalGenerativeCVAE(nn.Module):
         )
 
         log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
+        #TODO: Marginalize over z at training time here? (at the line down below)
         log_likelihood = torch.mean(log_p_y_xz_mean)
 
         mutual_inf_q = mutual_inf_mc(self.latent.q_dist)
