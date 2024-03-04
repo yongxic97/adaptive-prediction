@@ -44,7 +44,7 @@
 
   "q_z_xy_MLP_dims": 0,
   "p_z_x_MLP_dims": 32,
-  "GMM_components": 2,
+  "GMM_components": 1,
 
   "log_p_yt_xz_max": 6,
 

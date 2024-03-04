@@ -1827,8 +1827,8 @@ class MultimodalGenerativeCVAE(nn.Module):
             if num_samples is None:
                 raise ValueError("num_samples cannot be None with mode == PREDICT.")
 
-        self.latent.q_dist = self.q_z_xy(mode, enc, y_e)
-        self.latent.p_dist = self.p_z_x(mode, enc)
+        self.latent.q_dist = self.q_z_xy(mode, enc, y_e) # posterior
+        self.latent.p_dist = self.p_z_x(mode, enc)       # prior, has four sampling strategies
 
         z = self.latent.sample_q(sample_ct, mode)
         print("z shape", z.shape)
@@ -1892,8 +1892,10 @@ class MultimodalGenerativeCVAE(nn.Module):
             update_mode=update_mode,
         )
         print("final dist mus shape", y_dist.mus.shape)
+        print("y shape", y.shape)
         if self.hyperparams["single_mode_multi_sample"]:
             log_p_ynt_xz = y_dist.log_prob(torch.nan_to_num(y))
+            print("log_p_ynt_xz shape", log_p_ynt_xz.shape)
             log_p_yt_xz = torch.logsumexp(log_p_ynt_xz, dim=0, keepdim=True) - np.log(
                 log_p_ynt_xz.shape[0]
             )
@@ -1943,8 +1945,9 @@ class MultimodalGenerativeCVAE(nn.Module):
                 )
 
         nan_mask = (~y.isfinite()).any(dim=-1)
+        print("log_p_yt_xz shape", log_p_yt_xz.shape)
         log_p_y_xz = torch.sum(log_p_yt_xz.masked_fill_(nan_mask, 0.0), dim=-1)
-
+        print("log_p_y_xz shape", log_p_y_xz.shape)
         # if self.hyperparams["single_mode_multi_sample"]:
         #     log_p_y_xz /= log_p_yt_xz.shape[-1]
 
@@ -2000,9 +2003,11 @@ class MultimodalGenerativeCVAE(nn.Module):
             self.hyperparams["k"],
             update_mode,
         )
-
+        print("log_p_y_xz shape", log_p_y_xz.shape)
         log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
+        print("log_p_y_xz_mean shape", log_p_y_xz_mean.shape)
         log_likelihood = torch.mean(log_p_y_xz_mean)
+        print("log_likelihood shape", log_likelihood.shape)
 
         mutual_inf_q = mutual_inf_mc(self.latent.q_dist)
         mutual_inf_p = mutual_inf_mc(self.latent.p_dist)
