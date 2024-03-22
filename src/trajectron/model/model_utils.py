@@ -93,8 +93,10 @@ class CustomLR(torch.optim.lr_scheduler.LambdaLR):
 
 def mutual_inf_mc(x_dist):
     dist = x_dist.__class__
-    H_y = dist(probs=x_dist.probs.mean(dim=0)).entropy()
-    return (H_y - x_dist.entropy().mean(dim=0)).sum()
+    # H_y = dist(probs=x_dist.probs.mean(dim=0)).entropy()
+    H_y = dist(concentration1=x_dist.concentration1.mean(dim=0), concentration0=x_dist.concentration0.mean(dim=0)).entropy()
+    # return (H_y - x_dist.entropy().mean(dim=0)).sum()
+    return (H_y - x_dist.entropy().mean(dim=0)).mean()
 
 
 def roll_by_gather(mat: torch.Tensor, dim: int, shifts: torch.LongTensor):

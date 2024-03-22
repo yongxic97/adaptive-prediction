@@ -15,6 +15,7 @@
 
 import warnings
 from typing import Dict, List, Optional, Tuple
+import csv
 
 import torch
 import torch.distributions as td
@@ -1271,9 +1272,14 @@ class MultimodalGenerativeCVAE(nn.Module):
         ph = prediction_horizon
         pred_dim = self.pred_state_length
 
+        if mode == ModeKeys.PREDICT and z_mode == True:
+            z_batch_cnt = 1
+        else:
+            z_batch_cnt = self.latent.K ** self.latent.N
+
         z = torch.reshape(z_stacked, (-1, self.latent.z_dim))
         # zx = torch.cat([z, x.repeat(num_samples * num_components, 1)], dim=1)
-        zx = torch.cat([z, x.repeat(num_samples * (self.latent.K**self.latent.N), 1)], dim=1)
+        zx = torch.cat([z, x.repeat(num_samples * z_batch_cnt, 1)], dim=1)
 
         cell = self.node_modules[self.node_type + "/decoder/rnn_cell"]
         initial_h_model = self.node_modules[self.node_type + "/decoder/initial_h"]
@@ -1283,11 +1289,11 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         log_pis, mus, log_sigmas, corrs, a_sample = [], [], [], [], []
 
-        # yx: instantiate log_probabilities of latent.
+        # Instantiate log_probabilities of latent.
         if mode == ModeKeys.PREDICT:
-            z_logits = self.latent.p_dist.logits.repeat(num_samples,1,1) # prior
+            z_logits = self.latent.p_dist.logits.reshape(-1,self.latent.N,self.latent.K).repeat(num_samples,1,1) # prior
         else:
-            z_logits = self.latent.q_dist.logits.repeat(num_samples,1,1) # posterior
+            z_logits = self.latent.q_dist.logits.reshape(-1,self.latent.N,self.latent.K).repeat(num_samples,1,1) # posterior
 
         # Infer initial action state for node from current state
         a_0 = self.node_modules[self.node_type + "/decoder/state_action"](n_s_t0)
@@ -1297,44 +1303,53 @@ class MultimodalGenerativeCVAE(nn.Module):
             input_ = torch.cat(
                 [
                     zx,
-                    a_0.repeat(num_samples * (self.latent.K**self.latent.N), 1),
-                    x_nr_t.repeat(num_samples * (self.latent.K**self.latent.N), 1),
+                    a_0.repeat(num_samples * z_batch_cnt, 1),
+                    x_nr_t.repeat(num_samples * z_batch_cnt, 1),
                 ],
                 dim=1,
             )
         else:
-            input_ = torch.cat([zx, a_0.repeat(num_samples * (self.latent.K**self.latent.N), 1)], dim=1)
+            input_ = torch.cat([zx, a_0.repeat(num_samples * z_batch_cnt, 1)], dim=1)
 
         for j in range(ph):
             h_state = cell(input_, state) # state is reccurent from previous iteration
             decoder_out = F.relu(post_cell(h_state))
-            print("decoder output size before projection to GMM, ", decoder_out.shape)
+            # print("decoder output size before projection to GMM, ", decoder_out.shape)
             log_pi_t, mu_t, log_sigma_t, corr_t = self.project_to_GMM_params(
                 decoder_out 
             ) # a set of neural networks that project the raw output of the decoder to the parameters of the GMM
-            # print("log_pi_t shape", log_pi_t.shape) # [(K**N)*bs, GMM_components]
-            # print("mu_t shape", mu_t.shape) # [(K**N)*bs, GMM_components * 2]
-            # print("log_sigma_t shape", log_sigma_t.shape) # [(K**N)*bs, GMM_components * 2]
-            # print("corr_t shape", corr_t.shape) # [(K**N)*bs, GMM_components]
+            # print("log_pi_t shape", log_pi_t.shape) # [num_samples*(K**N)*bs, GMM_components]
+            # print("mu_t shape", mu_t.shape) # [num_samples*(K**N)*bs, GMM_components * 2]
+            # print("log_sigma_t shape", log_sigma_t.shape) # [num_samples*(K**N)*bs, GMM_components * 2]
+            # print("corr_t shape", corr_t.shape) # [num_samples*(K**N)*bs, GMM_components]
             gmm = GMM2D(log_pi_t, mu_t, log_sigma_t, corr_t) 
-
+            print("gmm mus shape", gmm.mus.shape)
             if mode == ModeKeys.PREDICT and gmm_mode:
-                a_t = gmm.mode()
+                # a_t = gmm.mode()
+                # when full_dist is used at inference time, it does not make sense to take the mode of gmm
+                a_t = gmm.rsample() 
             else:
                 a_t = gmm.rsample()
-            print("logits shape", self.latent.p_dist.logits.shape)
+            # print("logits shape", self.latent.p_dist.logits.shape)
             # if num_components > 1:
             #     if mode == ModeKeys.PREDICT:
             #         log_pis.append(self.latent.p_dist.logits.repeat(num_samples, 1, 1))
             #     else:
             #         log_pis.append(self.latent.q_dist.logits.repeat(num_samples, 1, 1))
             # else:
+
+            # this is the log_pis of the p(y|x,z) distribution, which is a GMM.
+            # log_pis.append(
+            #     torch.ones_like(
+            #         corr_t.reshape(num_samples, num_components, -1)
+            #         .permute(0, 2, 1)
+            #         .reshape(-1, num_components)
+            #     )
+            # )
             log_pis.append(
-                torch.ones_like(
-                    corr_t.reshape(num_samples, num_components, -1)
-                    .permute(0, 2, 1)
-                    .reshape(-1, num_components)
-                )
+                log_pi_t.reshape(num_samples, num_components, -1)
+                .permute(0, 2, 1)
+                .reshape(-1, num_components)
             )
 
             mus.append(
@@ -1376,15 +1391,16 @@ class MultimodalGenerativeCVAE(nn.Module):
         log_sigmas = torch.stack(log_sigmas, dim=1)
         corrs = torch.stack(corrs, dim=1)
         
-        print("z log probs shape", z_logits.shape)
+        print("z logits without repeat", self.latent.q_dist.logits.shape)
+        print("z logits probs shape", z_logits.shape)
         print("log_pis.shape", log_pis.shape)
         print("log_sigmas.shape", log_sigmas.shape)
 
         a_dist = GMM2D(
-            torch.reshape(log_pis, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components]),
-            torch.reshape(mus, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components * pred_dim]),
-            torch.reshape(log_sigmas, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components * pred_dim]),
-            torch.reshape(corrs, [num_samples * (self.latent.K**self.latent.N), -1, ph, num_components]),
+            torch.reshape(log_pis, [num_samples * z_batch_cnt, -1, ph, num_components]),
+            torch.reshape(mus, [num_samples * z_batch_cnt, -1, ph, num_components * pred_dim]),
+            torch.reshape(log_sigmas, [num_samples * z_batch_cnt, -1, ph, num_components * pred_dim]),
+            torch.reshape(corrs, [num_samples * z_batch_cnt, -1, ph, num_components]),
         )
 
         if self.hyperparams["dynamic"][self.node_type]["distribution"]:
@@ -1408,7 +1424,11 @@ class MultimodalGenerativeCVAE(nn.Module):
         for i in range(1,self.hyperparams["N"]):
             z_logits_sliced[0] = z_logits_sliced[0].unsqueeze(1)
             z_logits_sliced[i] = z_logits_sliced[i].unsqueeze(3)
-            z_logits_sliced[0] = torch.matmul(z_logits_sliced[i], z_logits_sliced[0]).view(-1,1,self.hyperparams["K"]**(i+1))
+            # z_logits_sliced[0] = torch.matmul(z_logits_sliced[i], z_logits_sliced[0]).view(-1,1,self.hyperparams["K"]**(i+1))
+            #TODO: sum, not matmul.
+            z_logits_sliced[0] = (z_logits_sliced[i] + z_logits_sliced[0]).view(-1,1,self.hyperparams["K"]**(i+1))
+
+        print("z_logits_sliced shape before reshaping", z_logits_sliced[0].shape)
 
         z_logits_all_comb = z_logits_sliced[0].squeeze(1).transpose(0,1)
         print("z_logits_all_comb shape", z_logits_all_comb.shape)
@@ -1421,10 +1441,13 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         if mode == ModeKeys.PREDICT:
             if gmm_mode:
-                a_sample = a_dist.mode()
+                # a_sample = a_dist.mode()
+                a_sample = a_dist.rsample() # same as line 1328 when full_dist is used
             else:
                 a_sample = a_dist.rsample()
             #TODO: Marginalize at inference time over z.
+            print("a_sample shape", a_sample.shape)
+            print("x shape", x.shape)
             sampled_future = self.dynamic.integrate_samples(a_sample, x, dt)
             return y_dist, sampled_future
         else:
@@ -1876,12 +1899,12 @@ class MultimodalGenerativeCVAE(nn.Module):
             if num_samples is None:
                 raise ValueError("num_samples cannot be None with mode == PREDICT.")
 
-        self.latent.q_dist = self.q_z_xy(mode, enc, y_e)
-        self.latent.p_dist = self.p_z_x(mode, enc)
+        self.latent.q_dist = self.q_z_xy(mode, enc, y_e) # q_dist is posterior
+        self.latent.p_dist = self.p_z_x(mode, enc)       # p_dist is prior
         # print("sample_ct", sample_ct)
         z = self.latent.sample_q(sample_ct, mode)
 
-        print('z', z.shape)
+        # print('z', z.shape)
 
         if mode == ModeKeys.TRAIN:
             kl_obj = self.latent.kl_q_p(
@@ -1966,6 +1989,9 @@ class MultimodalGenerativeCVAE(nn.Module):
                 y_dist.log_prob(torch.nan_to_num(y)),
                 max=self.hyperparams["log_p_yt_xz_max"],
             )
+        print("y_dist mus in decoder()", y_dist.mus.shape)
+        print(y_dist.log_pis.shape)
+        print("log_p_yt_xz shape in decoder()", log_p_yt_xz.shape)
 
         if (
             self.hyperparams["log_histograms"]
@@ -2042,6 +2068,8 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         enc, x_nr_t, y_e, y_r, y = self.obtain_encoded_tensors(mode, batch)
 
+        print("enc shape", enc.shape)
+
         z, kl = self.encoder(mode, enc, y_e)
 
         if self.hyperparams["adaptive"]:
@@ -2068,7 +2096,10 @@ class MultimodalGenerativeCVAE(nn.Module):
         # log_p_y_xz_mean = torch.mean(log_p_y_xz, dim=0)  # [nbs]
         print("log_p_y_xz shape", log_p_y_xz.shape)
         print("z_logits_all_comb shape", z_logits_all_comb.shape)
-        log_p_y_xz_mean = torch.mean(torch.mul(log_p_y_xz, z_logits_all_comb), dim=0)
+        # print("unmarginalized log_p_y_xz shape", torch.mul(log_p_y_xz, z_logits_all_comb).shape)
+        z_all_comb = torch.exp(z_logits_all_comb)
+        log_p_y_xz_mean = torch.mean(torch.mul(log_p_y_xz, z_all_comb), dim=0)
+        # log_p_y_xz_mean = torch.mean(torch.mul(log_p_y_xz, z_logits_all_comb), dim=0)
         
         #TODO: Marginalize over z at training time here? (at the line down below)
         log_likelihood = torch.mean(log_p_y_xz_mean)
@@ -2079,7 +2110,8 @@ class MultimodalGenerativeCVAE(nn.Module):
         mutual_inf_q = mutual_inf_mc(self.latent.q_dist)
         mutual_inf_p = mutual_inf_mc(self.latent.p_dist)
 
-        ELBO = log_likelihood - self.kl_weight * kl + 1.0 * mutual_inf_p
+        # the 25 here is a test. The reason is, originally GMM was not averaged, but only summed (treated as if 25 GMM components)
+        ELBO = 25*log_likelihood - self.kl_weight * kl + 1.0 * mutual_inf_p
         loss = -ELBO
 
         if (
@@ -2144,13 +2176,21 @@ class MultimodalGenerativeCVAE(nn.Module):
 
         self.latent.p_dist = self.p_z_x(mode, enc)
 
-        z, num_samples, num_components = self.latent.sample_p(
+        z, num_samples, _ = self.latent.sample_p(
             num_samples,
             mode,
-            most_likely_z=z_mode,
-            full_dist=full_dist,
-            all_z_sep=all_z_sep,
+            most_likely_z=z_mode, # True
+            full_dist=full_dist,  # False
+            all_z_sep=all_z_sep,  # False
         )
+        num_components = self.hyperparams["GMM_components"] # decoupled from latent dimension
+        print("inference time enc shape", enc.shape)
+        print("inference time z shape", z.shape)
+        print("logitsshape", self.latent.p_dist.logits.shape)
+        z_logits_orignal = self.latent.p_dist.logits.detach().cpu().numpy()
+        with open("z_logits_orignal.csv", "a") as f:
+            writer = csv.writer(f)
+            writer.writerows(z_logits_orignal)  
 
         if self.hyperparams["adaptive"]:
             pos_hist: torch.Tensor = batch.agent_hist[..., :2]

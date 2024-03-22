@@ -58,14 +58,14 @@ class DiscreteLatent(object):
 
         return td.OneHotCategorical(logits=logits)
 
-    def sample_q(self, num_samples, mode):
+    def sample_q(self, num_samples, mode): # prior samples
         bs = self.p_dist.probs.size()[0]
         print("bs",bs)
         # num_components = self.N * self.K # ogrinal, but doesn't seem to make sense
         num_components = self.K ** self.N
-        print("N" ,self.N)
-        print("K",self.K)
-        print("num_components",num_components)
+        # print("N" ,self.N)
+        # print("K",self.K)
+        # print("num_components",num_components)
         z_NK = (
             torch.from_numpy(self.all_one_hot_combinations(self.N, self.K))
             .float()
@@ -77,7 +77,7 @@ class DiscreteLatent(object):
 
     def sample_p(
         self, num_samples, mode, most_likely_z=False, full_dist=True, all_z_sep=False
-    ):
+    ): # prior samples
         num_components = 1
         bs = self.p_dist.probs.shape[0]
         if full_dist:
@@ -98,7 +98,7 @@ class DiscreteLatent(object):
             )
             k = self.K**self.N
             num_samples = k
-        elif most_likely_z:
+        elif most_likely_z: # This is what default setting does for inference
             # Sampling the most likely z from p(z|x).
             eye_mat = torch.eye(self.p_dist.event_shape[-1], device=self.device)
             argmax_idxs = torch.argmax(self.p_dist.probs, dim=-1)

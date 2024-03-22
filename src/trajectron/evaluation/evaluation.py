@@ -30,6 +30,8 @@ from trajectron.utils import prediction_output_to_trajectories
 def compute_ade_pt(predicted_trajs, gt_traj):
     error = torch.linalg.norm(predicted_trajs - gt_traj, dim=-1)
     ade = torch.mean(error, axis=-1)
+    # print("ade shape", ade.shape)
+    # print("ade shape after flatten", ade.flatten().shape)
     return ade.flatten()
 
 

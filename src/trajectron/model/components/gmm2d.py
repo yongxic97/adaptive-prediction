@@ -56,9 +56,7 @@ class GMM2D(td.MixtureSameFamily):
         self.log_pis = log_pis - torch.logsumexp(
             log_pis, dim=-1, keepdim=True
         )  # [..., K]
-        print("self.mus.shape before reshaping", mus.shape)
         self.mus = self.reshape_to_components(mus)  # [bs*(K**N), GMM_components, 2]
-        print("self.mus.shape after reshaping", self.mus.shape)
         self.log_sigmas = self.reshape_to_components(log_sigmas)  # [..., K, 2]
         # [batch_size * (K**N), ]
         self.sigmas = torch.exp(self.log_sigmas)  # [..., K, 2]
@@ -166,6 +164,7 @@ class GMM2D(td.MixtureSameFamily):
         :return: Mode of the GMM
         """
         if self.mus.shape[-2] > 1:
+            # print("GMM mode() mus shape", self.mus.shape)
             samp, bs, time, comp, _ = self.mus.shape
             assert samp == 1, "For taking the mode only one sample makes sense."
             mode_node_list = []

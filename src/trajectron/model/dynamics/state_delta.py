@@ -32,6 +32,9 @@ class StateDelta(Dynamic):
         :return: Position samples
         """
         p_0 = self.initial_conditions["pos"].unsqueeze(1).unsqueeze(0)
+        print("integrate_sample p_0 shape before reshape: ", p_0.shape)
+        print("torch.cumsum(delta, dim=2) shape: ", torch.cumsum(delta, dim=2).shape)
+        p_0 = p_0.repeat(1, int(delta.shape[1]/p_0.shape[1]), 1, 1, 1)
         return torch.cumsum(delta, dim=2) + p_0
 
     def integrate_distribution(
@@ -60,10 +63,10 @@ class StateDelta(Dynamic):
         :return: Joint GMM Distribution over position in x and y direction.
         """
         p_0 = self.initial_conditions["pos"][None, :, None, None, :]
-        print("p_0.shape: ", p_0.shape)
-        print("a shape", torch.cumsum(delta_dist.mus, dim=2).shape)
+        # print("p_0.shape: ", p_0.shape)
+        # print("a shape", torch.cumsum(delta_dist.mus, dim=2).shape)
         p_0 = p_0.repeat(1, int(delta_dist.mus.shape[1]/p_0.shape[1]), 1, 1, 1)
-        print("p_0 after repeat: ", p_0.shape)
+        # print("p_0 after repeat: ", p_0.shape)
         pos_mus = torch.cumsum(delta_dist.mus, dim=2) + p_0
 
         delta_dist_sigma_matrix = delta_dist.get_covariance_matrix()

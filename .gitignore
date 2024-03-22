@@ -3,6 +3,8 @@ wandb/
 *.csv
 *.pkl
 
+./experiments/pedestrians/*
+
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.lof
